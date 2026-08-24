@@ -1,0 +1,6 @@
+{
+  "name": "五行麻将",
+  "description": "基于传统五行与干支冲合刑会规则的108张五行麻将应用，支持多人全服实时联网对战（快速匹配、房间创建、AI补位、实时吃碰胡杠决断）、单机人机练习、规则图鉴与算番模拟器",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
