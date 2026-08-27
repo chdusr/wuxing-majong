@@ -20,6 +20,7 @@ import {
   findEatOptions,
   findPungOptions,
   findKongOptions,
+  checkThreeTilesKan,
   checkHu,
   sortHand,
 } from '../src/utils/mahjongRules';
@@ -575,18 +576,24 @@ export class MahjongRoom {
     const usedTileIds = new Set(claim.tiles.map(t => t.id));
     claimant.hand = claimant.hand.filter(t => !usedTileIds.has(t.id));
 
+    const fullMeldTiles = [...claim.tiles, claimedTile];
     let meldType: MeldType = 'triplet';
-    if (claim.type === 'clash_pung') meldType = 'clash_meld';
-    else if (claim.type === 'kong') meldType = 'kong';
-    else if (claim.type === 'eat') {
-      // Find matching kan type
-      meldType = 'five_elements_generation';
+    let typeLabel = '碰牌';
+    if (claim.type === 'clash_pung') {
+      meldType = 'clash_meld';
+      typeLabel = '冲战碰';
+    } else if (claim.type === 'kong') {
+      meldType = 'kong';
+      typeLabel = '大明杠';
+    } else if (claim.type === 'eat') {
+      const kanCheck = checkThreeTilesKan(fullMeldTiles.map(t => t.name));
+      meldType = kanCheck?.type || 'stem_combine';
+      typeLabel = kanCheck?.typeLabel || '吃牌';
     }
 
-    const fullMeldTiles = [...claim.tiles, claimedTile];
     const meld: Meld = {
       type: meldType,
-      typeLabel: claim.label,
+      typeLabel: typeLabel || claim.label,
       tiles: fullMeldTiles,
       sourcePlayerIndex: discarderSeatIdx,
       claimedTile,

@@ -121,13 +121,6 @@ export interface KanPattern {
 }
 
 export const CANONICAL_KANS: KanPattern[] = [
-  // 五行相生 (5 sets)
-  { name: '金水木', type: 'five_elements_generation', typeLabel: '五行相生', tiles: ['金', '水', '木'], key: '金水木' },
-  { name: '水木火', type: 'five_elements_generation', typeLabel: '五行相生', tiles: ['水', '木', '火'], key: '水木火' },
-  { name: '木火土', type: 'five_elements_generation', typeLabel: '五行相生', tiles: ['木', '火', '土'], key: '木火土' },
-  { name: '火土金', type: 'five_elements_generation', typeLabel: '五行相生', tiles: ['火', '土', '金'], key: '火土金' },
-  { name: '土金水', type: 'five_elements_generation', typeLabel: '五行相生', tiles: ['土', '金', '水'], key: '土金水' },
-
   // 天干五合 (5 sets)
   { name: '甲己土', type: 'stem_combine', typeLabel: '天干五合', tiles: ['甲', '己', '土'], key: '甲己土' },
   { name: '乙庚金', type: 'stem_combine', typeLabel: '天干五合', tiles: ['乙', '庚', '金'], key: '乙庚金' },
@@ -606,7 +599,7 @@ export function auditHuHand(
   if (pairNames.length === 0) {
     adviceList.push('需留一对相同牌作为雀头将牌');
   }
-  adviceList.push('检查是否有孤张未形成相生(如金水木)、五合(如甲己土)、三合(如寅午戌)、六合(如巳申水)或冲战砍');
+  adviceList.push('检查是否有孤张未形成五合(如甲己土)、三合(如寅午戌)、六合(如巳申水)、三会、三刑或冲战砍');
 
   return {
     isHu: false,
@@ -621,7 +614,7 @@ export function auditHuHand(
       status: totalCount === 14 ? 'fail' : 'incomplete',
       tileCountMsg,
       pairMsg,
-      kansMsg: '砍牌检验：部分手牌未能成砍 (未满足三同/相生/五合/六合/三合/三会/三刑/冲战)',
+      kansMsg: '砍牌检验：部分手牌未能成砍 (未满足三同/五合/六合/三合/三会/三刑/冲战)',
       advice: adviceList.join('；'),
     },
   };

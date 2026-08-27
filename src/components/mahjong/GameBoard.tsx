@@ -476,8 +476,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     const human = players[0];
     const humanCanHu = checkHu([...human.hand, discardedTile], human.melds);
 
-    // 2. Check Pung & Clash Pung for Human
+    // 2. Check Pung & Clash Pung & Kong for Human
     const { normalPung, clashPung } = findPungOptions(human.hand, discardedTile);
+    const kongOptions = findKongOptions(human.hand, discardedTile);
 
     // 3. Check Eat (Chow) for Human (only if discarder is Left player, idx 3)
     const isFromLeft = discarderIndex === 3;
@@ -498,7 +499,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     if (clashPung) {
       availableClaims.push({
         type: 'clash_pung',
-        label: `冲战碰 [${clashPung[0].name}${clashPung[1].name}冲${discardedTile.name}]`,
+        label: `冲战碰 [${clashPung[0].name}${clashPung[1].name} 冲 ${discardedTile.name}]`,
         tiles: clashPung,
         targetTile: discardedTile,
         priority: 5, // Priority over normal pung!
@@ -508,10 +509,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     if (normalPung) {
       availableClaims.push({
         type: 'pung',
-        label: `碰 [${normalPung[0].name}${normalPung[1].name}${discardedTile.name}]`,
+        label: `碰牌 [${normalPung[0].name}${normalPung[1].name}${discardedTile.name}]`,
         tiles: normalPung,
         targetTile: discardedTile,
         priority: 3,
+      });
+    }
+
+    if (kongOptions.length > 0) {
+      availableClaims.push({
+        type: 'kong',
+        label: `大明杠 [${discardedTile.name}×4]`,
+        tiles: kongOptions[0],
+        targetTile: discardedTile,
+        priority: 4,
       });
     }
 
@@ -566,6 +577,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     addLog(`你打出了【${tile.name}】`);
 
+    // Check if any AI can Hu on this discard (捉炮)
+    for (let aiIdx = 1; aiIdx < 4; aiIdx++) {
+      const ai = players[aiIdx];
+      const aiHu = checkHu([...ai.hand, tile], ai.melds);
+      if (aiHu.isHu) {
+        setTimeout(() => {
+          triggerHu(aiIdx, 0, false, aiHu, [...ai.hand, tile]);
+        }, 600);
+        return;
+      }
+    }
+
     // Check if AI wants to Hu/Pung (Simple AI simulation)
     const nextPlayer = 1;
     setTimeout(() => {
@@ -613,6 +636,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     if (claim.type === 'clash_pung') {
       meldType = 'clash_meld';
       typeLabel = '冲战碰';
+    } else if (claim.type === 'kong') {
+      meldType = 'quad';
+      typeLabel = '大明杠';
     } else if (claim.type === 'eat') {
       const kanCheck = checkThreeTilesKan([
         claim.tiles[0].name,
@@ -631,13 +657,24 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       claimedTile: targetTile,
     };
 
+    // If Kong, draw 1 supplemental card from the deck
+    let postKongHand = remainingHand;
+    let nextWallIdx = wallIndex;
+    if (claim.type === 'kong' && wallIndex < deck.length) {
+      const kongDrawn = deck[wallIndex];
+      postKongHand = [...remainingHand, kongDrawn];
+      nextWallIdx = wallIndex + 1;
+      setWallIndex(nextWallIdx);
+      addLog(`大明杠补牌摸得【${kongDrawn.name}】`);
+    }
+
     // Remove claimed tile from discarder's pool and update player state
     setPlayers(prev =>
       prev.map((p, idx) => {
         if (idx === sourceIndex && idx === 0) {
           return {
             ...p,
-            hand: remainingHand,
+            hand: postKongHand,
             melds: [...p.melds, newMeld],
             discards: p.discards.slice(0, p.discards.length - 1),
             lastDrawnTile: null,
@@ -652,7 +689,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         if (idx === 0) {
           return {
             ...p,
-            hand: remainingHand,
+            hand: postKongHand,
             melds: [...p.melds, newMeld],
             lastDrawnTile: null,
           };

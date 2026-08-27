@@ -3,10 +3,18 @@ import { MahjongTileData, AvailableClaim } from '../../types/mahjong';
 import { MahjongTile } from './MahjongTile';
 import { Zap, Swords, Flame, Sparkles, X, ShieldCheck } from 'lucide-react';
 
-interface ClaimDialogProps {
-  availableClaims: AvailableClaim[];
+export interface ClaimDialogData {
   targetTile: MahjongTileData;
-  onConfirmClaim: (claim: AvailableClaim) => void;
+  sourceIndex: number;
+  claims: AvailableClaim[];
+}
+
+interface ClaimDialogProps {
+  availableClaims?: AvailableClaim[];
+  targetTile?: MahjongTileData;
+  claimData?: ClaimDialogData;
+  onConfirmClaim?: (claim: AvailableClaim) => void;
+  onClaim?: (claim: AvailableClaim) => void;
   onPass: () => void;
   onOpenAudit?: () => void;
 }
@@ -14,11 +22,24 @@ interface ClaimDialogProps {
 export const ClaimDialog: React.FC<ClaimDialogProps> = ({
   availableClaims,
   targetTile,
+  claimData,
   onConfirmClaim,
+  onClaim,
   onPass,
   onOpenAudit,
 }) => {
-  if (!availableClaims || availableClaims.length === 0) return null;
+  const claims = availableClaims || claimData?.claims || [];
+  const currentTargetTile = targetTile || claimData?.targetTile;
+
+  if (!claims || claims.length === 0 || !currentTargetTile) return null;
+
+  const handleAction = (claim: AvailableClaim) => {
+    if (onConfirmClaim) {
+      onConfirmClaim(claim);
+    } else if (onClaim) {
+      onClaim(claim);
+    }
+  };
 
   return (
     <div className="fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 animate-in slide-in-from-bottom-6 duration-200 pointer-events-auto">
@@ -32,7 +53,7 @@ export const ClaimDialog: React.FC<ClaimDialogProps> = ({
               对手打出：
             </span>
             <div className="inline-block transform scale-90 -my-1">
-              <MahjongTile tile={targetTile} size="xs" />
+              <MahjongTile tile={currentTargetTile} size="xs" />
             </div>
           </div>
 
@@ -54,7 +75,7 @@ export const ClaimDialog: React.FC<ClaimDialogProps> = ({
 
         {/* Action Buttons Row */}
         <div className="flex flex-wrap items-center justify-center gap-2.5 w-full">
-          {availableClaims.map((claim, idx) => {
+          {claims.map((claim, idx) => {
             const isHu = claim.type === 'hu';
             const isClashPung = claim.type === 'clash_pung';
             const isPung = claim.type === 'pung';
@@ -71,10 +92,10 @@ export const ClaimDialog: React.FC<ClaimDialogProps> = ({
               btnBg = 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-lg shadow-purple-900/50 ring-1 ring-amber-300';
               icon = <Swords className="w-4 h-4 text-amber-300" />;
             } else if (isPung) {
-              btnBg = 'bg-gradient-to-r from-amber-600 to-orange-600 text-white border-amber-400 shadow-md shadow-amber-900/40';
-              icon = <Zap className="w-4 h-4 text-amber-200" />;
+              btnBg = 'bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-500 text-amber-950 border-amber-300 shadow-lg shadow-amber-900/50 font-black';
+              icon = <Zap className="w-4 h-4 text-amber-950 fill-current" />;
             } else if (isKong) {
-              btnBg = 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400';
+              btnBg = 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400 shadow-md shadow-emerald-900/40';
             } else if (isEat) {
               btnBg = 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white border-blue-400';
             }
@@ -83,7 +104,7 @@ export const ClaimDialog: React.FC<ClaimDialogProps> = ({
               <button
                 key={idx}
                 type="button"
-                onClick={() => onConfirmClaim(claim)}
+                onClick={() => handleAction(claim)}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl border font-bold text-sm transition-all transform hover:scale-105 active:scale-95 ${btnBg}`}
               >
                 {icon}
@@ -91,7 +112,7 @@ export const ClaimDialog: React.FC<ClaimDialogProps> = ({
                 {claim.tiles && claim.tiles.length > 0 && (
                   <div className="flex items-center gap-1 ml-1 bg-black/30 px-1.5 py-0.5 rounded-lg">
                     {claim.tiles.map((t, ti) => (
-                      <span key={ti} className="text-xs text-amber-200 font-serif">
+                      <span key={ti} className="text-xs text-amber-200 font-serif font-bold">
                         {t.name}
                       </span>
                     ))}
@@ -100,6 +121,11 @@ export const ClaimDialog: React.FC<ClaimDialogProps> = ({
                 {isClashPung && (
                   <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded font-black">
                     优先
+                  </span>
+                )}
+                {isPung && (
+                  <span className="text-[10px] bg-black/30 text-amber-950 px-1.5 py-0.2 rounded font-black">
+                    碰
                   </span>
                 )}
               </button>
