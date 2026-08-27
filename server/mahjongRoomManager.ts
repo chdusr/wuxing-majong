@@ -36,6 +36,8 @@ export class MahjongRoom {
   hostUserId: string;
   status: RoomStatus = 'waiting';
   settings: RoomSettings;
+  createdAt: number = Date.now();
+  lastActiveAt: number = Date.now();
   
   players: (OnlinePlayer | null)[] = [null, null, null, null];
   spectators: { socketId: string; userId: string; name: string }[] = [];
@@ -118,9 +120,10 @@ export class MahjongRoom {
     };
   }
 
-  // Add a player into an open seat
+  // Add a player into an open seat or reconnect
   addPlayer(socketId: string, userId: string, name: string, avatar: string): { success: boolean; seatIndex?: number; message?: string } {
-    // Check if user is reconnecting
+    this.lastActiveAt = Date.now();
+    // Check if user is already seated in this room
     const existingIndex = this.players.findIndex(p => p && p.userId === userId);
     if (existingIndex !== -1) {
       const p = this.players[existingIndex]!;
@@ -128,13 +131,13 @@ export class MahjongRoom {
       p.isConnected = true;
       p.name = name || p.name;
       p.avatar = avatar || p.avatar;
-      return { success: true, seatIndex: existingIndex };
+      return { success: true, seatIndex: existingIndex, message: '重新入座' };
     }
 
     // If game in progress, can only join as spectator
     if (this.status !== 'waiting') {
       this.spectators.push({ socketId, userId, name });
-      return { success: true, message: 'Joined as spectator' };
+      return { success: true, message: '对局进行中，已进入观战席' };
     }
 
     // Find first empty seat
@@ -171,24 +174,35 @@ export class MahjongRoom {
     return { success: true, seatIndex: emptyIndex };
   }
 
-  // Remove player or disconnect
+  // Explicit player leave action
+  removePlayer(userId: string): boolean {
+    this.lastActiveAt = Date.now();
+    const playerIdx = this.players.findIndex(p => p?.userId === userId);
+    if (playerIdx === -1) {
+      this.spectators = this.spectators.filter(s => s.userId !== userId);
+      return true;
+    }
+
+    const player = this.players[playerIdx]!;
+    const wasHost = player.isHost;
+    this.players[playerIdx] = null;
+
+    if (wasHost) {
+      const nextHuman = this.players.find(p => p !== null && !p.isBot);
+      if (nextHuman) {
+        nextHuman.isHost = true;
+        this.hostUserId = nextHuman.userId;
+      }
+    }
+    return true;
+  }
+
+  // Temporary socket disconnect
   handleDisconnect(socketId: string): void {
+    this.lastActiveAt = Date.now();
     const player = this.players.find(p => p?.id === socketId);
     if (player) {
       player.isConnected = false;
-      if (this.status === 'waiting') {
-        // In waiting room, if disconnected, remove seat or assign host to next
-        const seatIdx = player.seatIndex;
-        const wasHost = player.isHost;
-        this.players[seatIdx] = null;
-        if (wasHost) {
-          const nextPlayer = this.players.find(p => p !== null && !p.isBot);
-          if (nextPlayer) {
-            nextPlayer.isHost = true;
-            this.hostUserId = nextPlayer.userId;
-          }
-        }
-      }
     }
     this.spectators = this.spectators.filter(s => s.socketId !== socketId);
   }
@@ -802,16 +816,18 @@ export class MahjongRoom {
 
   // Broadcast state to each socket in room
   broadcastState(io: SocketIOServer): void {
+    this.lastActiveAt = Date.now();
     // Send customized view to each seated player
     this.players.forEach(player => {
-      if (player && !player.isBot && player.isConnected) {
+      if (player && !player.isBot && player.id) {
         const state = this.getClientState(player.userId);
         io.to(player.id).emit('room:game_state', state);
       }
     });
 
-    // Send spectator view to room channel
+    // Send spectator view to room channel and spectators
     const publicState = this.getClientState();
+    io.to(this.roomId).emit('room:public_state', publicState);
     this.spectators.forEach(spec => {
       io.to(spec.socketId).emit('room:game_state', publicState);
     });
@@ -847,9 +863,19 @@ export class MahjongRoomManager {
   }
 
   cleanupEmptyRooms(): void {
+    const now = Date.now();
     this.rooms.forEach((room, id) => {
-      const activeCount = room.players.filter(p => p !== null && !p.isBot && p.isConnected).length;
-      if (activeCount === 0 && room.status === 'waiting') {
+      const humanPlayers = room.players.filter(p => p !== null && !p.isBot);
+      const connectedHumans = humanPlayers.filter(p => p?.isConnected);
+      
+      // If room has no human players at all
+      if (humanPlayers.length === 0) {
+        this.rooms.delete(id);
+        return;
+      }
+
+      // If room in waiting status with no connected humans for over 3 minutes
+      if (connectedHumans.length === 0 && now - room.lastActiveAt > 180000) {
         this.rooms.delete(id);
       }
     });

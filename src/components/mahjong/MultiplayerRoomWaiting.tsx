@@ -44,6 +44,7 @@ export const MultiplayerRoomWaiting: React.FC<MultiplayerRoomWaitingProps> = ({
 
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [chatInput, setChatInput] = useState<string>('');
+  const [errorBanner, setErrorBanner] = useState<string>('');
 
   const activePlayersCount = gameState.players.filter(p => p !== null).length;
   const allReady = gameState.players
@@ -62,9 +63,11 @@ export const MultiplayerRoomWaiting: React.FC<MultiplayerRoomWaitingProps> = ({
   };
 
   const handleStartGame = () => {
+    setErrorBanner('');
     socketService.startGame(gameState.roomId, res => {
       if (!res.success) {
-        alert(res.error || '无法开始游戏');
+        setErrorBanner(res.error || '无法开始游戏，请检查所有道友是否就绪');
+        setTimeout(() => setErrorBanner(''), 4000);
       }
     });
   };
@@ -126,6 +129,13 @@ export const MultiplayerRoomWaiting: React.FC<MultiplayerRoomWaitingProps> = ({
           </button>
         </div>
       </div>
+
+      {errorBanner && (
+        <div className="p-3 rounded-2xl bg-red-950/80 border border-red-500/40 text-red-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+          <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+          <span>{errorBanner}</span>
+        </div>
+      )}
 
       {/* 4 Seats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

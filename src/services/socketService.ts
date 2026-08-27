@@ -53,8 +53,9 @@ class SocketService {
       this.socket = io({
         autoConnect: true,
         reconnection: true,
-        reconnectionAttempts: 10,
+        reconnectionAttempts: 30,
         reconnectionDelay: 1000,
+        transports: ['polling', 'websocket'],
       });
     }
     return this.socket;
@@ -68,13 +69,16 @@ class SocketService {
       s.on('connect', () => {
         this.isConnecting = false;
       });
+      s.on('connect_error', () => {
+        this.isConnecting = false;
+      });
     }
   }
 
   createRoom(
     roomName: string,
     settings: Partial<RoomSettings>,
-    callback: (res: { success: boolean; roomId?: string; error?: string }) => void
+    callback: (res: { success: boolean; roomId?: string; state?: MultiplayerGameState; error?: string }) => void
   ): void {
     const profile = getLocalUserProfile();
     this.getSocket().emit(
@@ -109,7 +113,7 @@ class SocketService {
     );
   }
 
-  quickMatch(callback: (res: { success: boolean; roomId?: string; error?: string }) => void): void {
+  quickMatch(callback: (res: { success: boolean; roomId?: string; state?: MultiplayerGameState; error?: string }) => void): void {
     const profile = getLocalUserProfile();
     this.getSocket().emit(
       'room:quick_match',
@@ -120,6 +124,14 @@ class SocketService {
       },
       callback
     );
+  }
+
+  syncRoom(
+    roomId: string,
+    callback?: (res: { success: boolean; state?: MultiplayerGameState; error?: string }) => void
+  ): void {
+    const profile = getLocalUserProfile();
+    this.getSocket().emit('room:sync', { roomId, userId: profile.userId }, callback);
   }
 
   leaveRoom(roomId: string, callback?: (res: { success: boolean }) => void): void {

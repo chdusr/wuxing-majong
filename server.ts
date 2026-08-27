@@ -15,6 +15,9 @@ const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: { origin: '*' },
+  transports: ['polling', 'websocket'],
+  pingTimeout: 30000,
+  pingInterval: 10000,
 });
 const PORT = 3000;
 
@@ -45,6 +48,7 @@ app.get('/api/health', (req, res) => {
 
 // Multiplayer room list REST endpoint
 app.get('/api/mahjong/rooms', (req, res) => {
+  roomManager.cleanupEmptyRooms();
   res.json({ rooms: roomManager.getPublicRooms() });
 });
 
@@ -132,7 +136,13 @@ io.on('connection', socket => {
         room.broadcastState(io);
 
         io.emit('lobby:rooms_update', roomManager.getPublicRooms());
-        if (callback) callback({ success: true, roomId: room.roomId });
+        if (callback) {
+          callback({
+            success: true,
+            roomId: room.roomId,
+            state: room.getClientState(userId),
+          });
+        }
       } catch (e: any) {
         if (callback) callback({ success: false, error: e.message });
       }
@@ -208,19 +218,53 @@ io.on('connection', socket => {
         room.broadcastState(io);
         io.emit('lobby:rooms_update', roomManager.getPublicRooms());
 
-        if (callback) callback({ success: true, roomId: room.roomId });
+        if (callback) {
+          callback({
+            success: true,
+            roomId: room.roomId,
+            state: room.getClientState(data.userId),
+          });
+        }
       } catch (e: any) {
         if (callback) callback({ success: false, error: e.message });
       }
     }
   );
 
+  // Sync / Get current state
+  socket.on('room:sync', (data: { roomId: string; userId: string }, callback) => {
+    try {
+      const room = roomManager.getRoom(data.roomId);
+      if (room) {
+        currentRoomId = data.roomId;
+        currentUserId = data.userId;
+        socket.join(data.roomId);
+        // Ensure socketId is up to date
+        const seated = room.players.find(p => p?.userId === data.userId);
+        if (seated) {
+          seated.id = socket.id;
+          seated.isConnected = true;
+        }
+        if (callback) {
+          callback({
+            success: true,
+            state: room.getClientState(data.userId),
+          });
+        }
+      } else {
+        if (callback) callback({ success: false, error: '房间已不存在' });
+      }
+    } catch (e: any) {
+      if (callback) callback({ success: false, error: e.message });
+    }
+  });
+
   // Leave Room
   socket.on('room:leave', (data: { roomId: string; userId: string }, callback) => {
     try {
       const room = roomManager.getRoom(data.roomId);
       if (room) {
-        room.handleDisconnect(socket.id);
+        room.removePlayer(data.userId);
         socket.leave(data.roomId);
         room.broadcastState(io);
         roomManager.cleanupEmptyRooms();

@@ -26,7 +26,7 @@ import {
 } from '../../services/socketService';
 
 interface MultiplayerLobbyProps {
-  onJoinRoom: (roomId: string) => void;
+  onJoinRoom: (roomId: string, state?: any) => void;
   onBackToSinglePlayer: () => void;
 }
 
@@ -46,6 +46,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
 
   const [rooms, setRooms] = useState<RoomListItem[]>([]);
   const [isLoadingRooms, setIsLoadingRooms] = useState<boolean>(false);
+  const [isConnected, setIsConnected] = useState<boolean>(true);
 
   // Create room modal state
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
@@ -61,35 +62,48 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   const [inputPassword, setInputPassword] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
 
-  // Fetch initial rooms and listen to socket updates
+  // Fetch rooms helper
+  const fetchRooms = async (showLoading = false) => {
+    if (showLoading) setIsLoadingRooms(true);
+    try {
+      const res = await fetch('/api/mahjong/rooms');
+      const data = await res.json();
+      if (data.rooms) {
+        setRooms(data.rooms);
+      }
+    } catch (e) {
+      console.error('Fetch rooms error:', e);
+    } finally {
+      if (showLoading) setIsLoadingRooms(false);
+    }
+  };
+
+  // Fetch initial rooms, listen to socket updates, and periodic sync
   useEffect(() => {
     socketService.connect();
     const socket = socketService.getSocket();
 
-    const fetchRooms = async () => {
-      setIsLoadingRooms(true);
-      try {
-        const res = await fetch('/api/mahjong/rooms');
-        const data = await res.json();
-        if (data.rooms) {
-          setRooms(data.rooms);
-        }
-      } catch (e) {
-        console.error('Fetch rooms error:', e);
-      } finally {
-        setIsLoadingRooms(false);
-      }
-    };
+    fetchRooms(true);
 
-    fetchRooms();
-
+    const handleConnect = () => setIsConnected(true);
+    const handleDisconnect = () => setIsConnected(false);
     const handleRoomsUpdate = (updatedRooms: RoomListItem[]) => {
       setRooms(updatedRooms);
     };
 
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
     socket.on('lobby:rooms_update', handleRoomsUpdate);
 
+    // Periodic polling every 3.5 seconds
+    const interval = setInterval(() => {
+      fetchRooms(false);
+    }, 3500);
+
     return () => {
+      clearInterval(interval);
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
       socket.off('lobby:rooms_update', handleRoomsUpdate);
     };
   }, []);
@@ -111,7 +125,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     setErrorMsg('');
     socketService.quickMatch(res => {
       if (res.success && res.roomId) {
-        onJoinRoom(res.roomId);
+        onJoinRoom(res.roomId, res.state);
       } else {
         setErrorMsg(res.error || '匹配失败，请稍后重试');
       }
@@ -133,7 +147,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     socketService.createRoom(roomTitle, settings, res => {
       if (res.success && res.roomId) {
         setIsCreateOpen(false);
-        onJoinRoom(res.roomId);
+        onJoinRoom(res.roomId, res.state);
       } else {
         setErrorMsg(res.error || '创建房间失败');
       }
@@ -149,7 +163,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     socketService.joinRoom(inputRoomCode.trim(), inputPassword, res => {
       if (res.success && res.roomId) {
         setIsJoinByCodeOpen(false);
-        onJoinRoom(res.roomId);
+        onJoinRoom(res.roomId, res.state);
       } else {
         setErrorMsg(res.error || '加入房间失败');
       }
@@ -261,20 +275,20 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         </button>
 
         <div className="col-span-2 sm:col-span-1 p-3.5 rounded-2xl bg-gradient-to-br from-[#221538] to-[#180E29] border border-white/5 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2 text-slate-300">
-            <Users className="w-4 h-4 text-emerald-400" />
-            <span>活跃桌台：<b className="text-amber-300 font-mono">{rooms.length}</b> 局</span>
+          <div className="flex flex-col gap-0.5 text-slate-300">
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
+              <span className="text-[11px] text-slate-400">{isConnected ? '服务器在线' : '连接断开中...'}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-slate-300">
+              <Users className="w-3.5 h-3.5 text-amber-400" />
+              <span>活跃桌台：<b className="text-amber-300 font-mono">{rooms.length}</b> 局</span>
+            </div>
           </div>
           <button
             type="button"
-            onClick={() => {
-              setIsLoadingRooms(true);
-              fetch('/api/mahjong/rooms')
-                .then(r => r.json())
-                .then(d => setRooms(d.rooms || []))
-                .finally(() => setIsLoadingRooms(false));
-            }}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+            onClick={() => fetchRooms(true)}
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
             title="刷新桌台列表"
           >
             <RefreshCw className={`w-4 h-4 ${isLoadingRooms ? 'animate-spin' : ''}`} />
@@ -365,7 +379,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
                         setIsJoinByCodeOpen(true);
                       } else {
                         socketService.joinRoom(room.roomId, undefined, res => {
-                          if (res.success && res.roomId) onJoinRoom(res.roomId);
+                          if (res.success && res.roomId) onJoinRoom(res.roomId, res.state);
                           else setErrorMsg(res.error || '加入失败');
                         });
                       }
