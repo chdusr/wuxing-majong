@@ -16,6 +16,13 @@ import {
   Radio,
   Gamepad2,
   LogIn,
+  Server,
+  Wifi,
+  WifiOff,
+  CheckCircle2,
+  AlertCircle,
+  HelpCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { RoomListItem, RoomSettings } from '../../types/multiplayer';
 import {
@@ -23,6 +30,10 @@ import {
   getLocalUserProfile,
   saveLocalUserProfile,
   UserProfile,
+  getServerUrl,
+  getEffectiveApiUrl,
+  testServerHealth,
+  DEFAULT_CLOUD_RELAY_URL,
 } from '../../services/socketService';
 
 interface MultiplayerLobbyProps {
@@ -48,6 +59,11 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   const [isLoadingRooms, setIsLoadingRooms] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(true);
 
+  // Server Settings state
+  const [isServerSettingsOpen, setIsServerSettingsOpen] = useState<boolean>(false);
+  const [serverUrlInput, setServerUrlInput] = useState<string>(getServerUrl());
+  const [testStatus, setTestStatus] = useState<{ testing: boolean; success?: boolean; latencyMs?: number; error?: string } | null>(null);
+
   // Create room modal state
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
   const [customRoomName, setCustomRoomName] = useState<string>('');
@@ -66,13 +82,17 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
   const fetchRooms = async (showLoading = false) => {
     if (showLoading) setIsLoadingRooms(true);
     try {
-      const res = await fetch('/api/mahjong/rooms');
+      const endpoint = getEffectiveApiUrl('/api/mahjong/rooms');
+      const res = await fetch(endpoint);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.rooms) {
         setRooms(data.rooms);
       }
+      setIsConnected(true);
     } catch (e) {
       console.error('Fetch rooms error:', e);
+      setIsConnected(false);
     } finally {
       if (showLoading) setIsLoadingRooms(false);
     }
@@ -120,6 +140,28 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
     setIsEditingProfile(false);
   };
 
+  // Test server connectivity
+  const handleTestServer = async (urlToTest: string) => {
+    setTestStatus({ testing: true });
+    const result = await testServerHealth(urlToTest);
+    setTestStatus({
+      testing: false,
+      success: result.success,
+      latencyMs: result.latencyMs,
+      error: result.error,
+    });
+  };
+
+  // Apply server URL and reconnect
+  const handleApplyServerUrl = (urlToApply: string) => {
+    socketService.reconnectWithServerUrl(urlToApply);
+    setIsServerSettingsOpen(false);
+    setTestStatus(null);
+    setTimeout(() => {
+      fetchRooms(true);
+    }, 500);
+  };
+
   // Quick match
   const handleQuickMatch = () => {
     setErrorMsg('');
@@ -127,7 +169,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
       if (res.success && res.roomId) {
         onJoinRoom(res.roomId, res.state);
       } else {
-        setErrorMsg(res.error || '匹配失败，请稍后重试');
+        setErrorMsg(res.error || '匹配失败，请检查网络或配置对战服务器');
       }
     });
   };
@@ -149,7 +191,7 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         setIsCreateOpen(false);
         onJoinRoom(res.roomId, res.state);
       } else {
-        setErrorMsg(res.error || '创建房间失败');
+        setErrorMsg(res.error || '创建房间失败，请检查对战服务连接');
       }
     });
   };
@@ -219,7 +261,21 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
         </div>
 
         {/* Top Action Buttons */}
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              setServerUrlInput(getServerUrl());
+              setTestStatus(null);
+              setIsServerSettingsOpen(true);
+            }}
+            className="px-3 py-2 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold transition-all border border-white/10 flex items-center gap-1.5"
+            title="服务器中继与 EdgeOne 部署设置"
+          >
+            <Server className="w-3.5 h-3.5 text-amber-400" />
+            <span>服务器/EdgeOne设置</span>
+          </button>
+
           <button
             type="button"
             onClick={onBackToSinglePlayer}
@@ -239,6 +295,29 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Connection Notice / EdgeOne helper banner */}
+      {!isConnected && (
+        <div className="p-3.5 rounded-2xl bg-amber-950/80 border border-amber-500/50 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-lg animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>未连接到对战后端：</strong>若在 EdgeOne 或纯静态托管部署，请点击右侧配置对战服务地址或一键启用云端中继。
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setServerUrlInput(getServerUrl());
+              setTestStatus(null);
+              setIsServerSettingsOpen(true);
+            }}
+            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold text-xs shrink-0 transition-colors"
+          >
+            配置服务器地址
+          </button>
+        </div>
+      )}
 
       {/* Action Toolbar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
@@ -612,6 +691,185 @@ export const MultiplayerLobby: React.FC<MultiplayerLobbyProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Server & EdgeOne Settings Modal */}
+      {isServerSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="w-full max-w-lg bg-[#1C1230] border border-purple-500/40 rounded-3xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-base font-black text-amber-300 flex items-center gap-2">
+                <Server className="w-5 h-5 text-amber-400" />
+                <span>联机服务器与 EdgeOne 部署配置</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsServerSettingsOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Current Status Box */}
+            <div className="p-3.5 rounded-2xl bg-black/40 border border-white/10 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-400">当前连接状态：</span>
+                <span
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold text-xs ${
+                    isConnected
+                      ? 'bg-emerald-950 border border-emerald-500/50 text-emerald-300'
+                      : 'bg-red-950 border border-red-500/50 text-red-300'
+                  }`}
+                >
+                  {isConnected ? (
+                    <>
+                      <Wifi className="w-3.5 h-3.5" /> 已连通服务
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff className="w-3.5 h-3.5" /> 连接中断 / 未配置
+                    </>
+                  )}
+                </span>
+              </div>
+
+              <div className="text-xs text-slate-400 flex items-center justify-between">
+                <span>生效后端地址：</span>
+                <span className="font-mono text-amber-300 text-[11px] truncate max-w-[200px]">
+                  {getServerUrl() || '同域默认 (Origin)'}
+                </span>
+              </div>
+            </div>
+
+            {/* URL Input & Quick Presets */}
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-slate-300 mb-1.5 block font-bold">
+                  对战服务器地址 (Backend Server URL)：
+                </label>
+                <input
+                  type="text"
+                  value={serverUrlInput}
+                  onChange={e => setServerUrlInput(e.target.value)}
+                  placeholder="留空表示同域 / 或输入 https://your-server.run.app"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-black/50 border border-purple-500/30 text-white font-mono text-xs focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              {/* Presets */}
+              <div className="space-y-1.5">
+                <div className="text-[11px] text-slate-400 font-bold">快捷预设切换：</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setServerUrlInput('');
+                      handleTestServer('');
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      serverUrlInput === ''
+                        ? 'bg-purple-900/60 border-amber-400/80 text-amber-300'
+                        : 'bg-black/30 border-white/10 text-slate-300 hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="font-bold text-xs flex items-center gap-1.5">
+                      <span>🚀 本站同域 (标准部署)</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      适用于全栈容器直接运行
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setServerUrlInput(DEFAULT_CLOUD_RELAY_URL);
+                      handleTestServer(DEFAULT_CLOUD_RELAY_URL);
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      serverUrlInput === DEFAULT_CLOUD_RELAY_URL
+                        ? 'bg-purple-900/60 border-amber-400/80 text-amber-300'
+                        : 'bg-black/30 border-white/10 text-slate-300 hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="font-bold text-xs flex items-center gap-1.5 text-amber-400">
+                      <span>🌐 官方云端对战中继</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      EdgeOne 静态部署推荐
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Ping Test Button & Result */}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={testStatus?.testing}
+                  onClick={() => handleTestServer(serverUrlInput)}
+                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${testStatus?.testing ? 'animate-spin' : ''}`} />
+                  <span>{testStatus?.testing ? '测试中...' : '测试服务器连通性 (Ping)'}</span>
+                </button>
+
+                {testStatus && !testStatus.testing && (
+                  <div
+                    className={`text-xs font-bold flex items-center gap-1 ${
+                      testStatus.success ? 'text-emerald-400' : 'text-red-400'
+                    }`}
+                  >
+                    {testStatus.success ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>连通正常 (延迟: {testStatus.latencyMs}ms)</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>连接失败: {testStatus.error}</span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Explanation Card */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-purple-950/40 to-black/40 border border-purple-500/20 text-slate-300 text-[11px] space-y-1.5 leading-relaxed">
+                <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                  <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
+                  <span>为什么 EdgeOne 部署后看不到房间 / 建不了房？</span>
+                </div>
+                <p>
+                  1. <strong>原理说明</strong>：EdgeOne Pages 属于纯前端静态托管（CDN），仅托管编译后的 HTML/JS 静态文件，不会在边缘常驻运行 Node.js 游戏后台和 WebSocket 房间引擎。
+                </p>
+                <p>
+                  2. <strong>极速解决</strong>：只需在上方选择【官方云端对战中继】或填入您自建的 Node.js 后端服务器地址并保存，EdgeOne 静态网页便能立即与全网玩家跨域互通、开房对战！
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setIsServerSettingsOpen(false)}
+                className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-300 text-xs font-bold transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyServerUrl(serverUrlInput)}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-amber-950 text-xs font-black shadow-md transition-transform active:scale-95"
+              >
+                保存并立即连通
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

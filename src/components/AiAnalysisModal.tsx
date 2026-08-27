@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Send, Loader2, BookOpen, CheckCircle, RefreshCw } from 'lucide-react';
 import { TimeJuChartData } from '../types';
+import { getEffectiveApiUrl } from '../services/socketService';
 
 interface AiAnalysisModalProps {
   isOpen: boolean;
@@ -29,7 +30,8 @@ export const AiAnalysisModal: React.FC<AiAnalysisModalProps> = ({
   const fetchAnalysis = async (customQ?: string) => {
     setLoading(true);
     try {
-      const res = await fetch('/api/gemini/analyze-timeju', {
+      const endpoint = getEffectiveApiUrl('/api/gemini/analyze-timeju');
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
